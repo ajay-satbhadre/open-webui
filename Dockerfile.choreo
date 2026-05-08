@@ -126,8 +126,8 @@ EXPOSE 8080
 
 HEALTHCHECK CMD curl --silent --fail http://localhost:${PORT:-8080}/health | jq -ne 'input.status == true' || exit 1
 
-# Choreo-compliant: numeric UID 10001 in range 10000-20000
-USER $UID:$GID
+# Choreo-compliant: literal numeric UID required by CKV_CHOREO_1 (range 10000-20000)
+USER 10001
 
 ARG BUILD_HASH
 ENV WEBUI_BUILD_VERSION=${BUILD_HASH}

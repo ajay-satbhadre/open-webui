@@ -1,139 +1,24 @@
 # syntax=docker/dockerfile:1
 # Choreo-compatible Dockerfile for Open WebUI
-# Overrides UID/GID defaults to satisfy Choreo's requirement:
-# USER must be a numeric UID in the range 10000-20000.
-#
-# Usage in Choreo: set Dockerfile Path to /Dockerfile.choreo
+# Uses the official pre-built image from ghcr.io to avoid long build times.
+# Only adds a non-root user with UID 10001 to satisfy Choreo's CKV_CHOREO_1 requirement.
 
-ARG USE_CUDA=false
-ARG USE_OLLAMA=false
-ARG USE_SLIM=true
-ARG USE_PERMISSION_HARDENING=false
-ARG USE_CUDA_VER=cu128
-ARG USE_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-ARG USE_RERANKING_MODEL=""
-ARG USE_AUXILIARY_EMBEDDING_MODEL=TaylorAI/bge-micro-v2
-ARG USE_TIKTOKEN_ENCODING_NAME="cl100k_base"
-ARG BUILD_HASH=dev-build
+FROM ghcr.io/open-webui/open-webui:main
 
-# Choreo requires a numeric UID between 10000-20000
-ARG UID=10001
-ARG GID=10001
+USER root
 
-######## WebUI frontend ########
-FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
-ARG BUILD_HASH
-
-WORKDIR /app
-
-# Increase Node.js heap limit to prevent "JavaScript heap out of memory" during build
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-
-RUN apk add --no-cache git
-
-COPY package.json package-lock.json ./
-RUN npm ci --force
-
-COPY . .
-ENV APP_BUILD_HASH=${BUILD_HASH}
-RUN npm run build
-
-######## WebUI backend ########
-FROM python:3.11.14-slim-bookworm AS base
-
-ARG USE_CUDA
-ARG USE_OLLAMA
-ARG USE_CUDA_VER
-ARG USE_SLIM
-ARG USE_PERMISSION_HARDENING
-ARG USE_EMBEDDING_MODEL
-ARG USE_RERANKING_MODEL
-ARG USE_AUXILIARY_EMBEDDING_MODEL
-ARG UID
-ARG GID
-
-ENV PYTHONUNBUFFERED=1
-
-ENV ENV=prod \
-    PORT=8080 \
-    USE_OLLAMA_DOCKER=${USE_OLLAMA} \
-    USE_CUDA_DOCKER=${USE_CUDA} \
-    USE_SLIM_DOCKER=${USE_SLIM} \
-    USE_CUDA_DOCKER_VER=${USE_CUDA_VER} \
-    USE_EMBEDDING_MODEL_DOCKER=${USE_EMBEDDING_MODEL} \
-    USE_RERANKING_MODEL_DOCKER=${USE_RERANKING_MODEL} \
-    USE_AUXILIARY_EMBEDDING_MODEL_DOCKER=${USE_AUXILIARY_EMBEDDING_MODEL}
-
-ENV OLLAMA_BASE_URL="/ollama" \
-    OPENAI_API_BASE_URL=""
-
-ENV OPENAI_API_KEY="" \
-    WEBUI_SECRET_KEY="" \
-    SCARF_NO_ANALYTICS=true \
-    DO_NOT_TRACK=true \
-    ANONYMIZED_TELEMETRY=false
-
-ENV WHISPER_MODEL="base" \
-    WHISPER_MODEL_DIR="/app/backend/data/cache/whisper/models"
-
-ENV RAG_EMBEDDING_MODEL="$USE_EMBEDDING_MODEL_DOCKER" \
-    RAG_RERANKING_MODEL="$USE_RERANKING_MODEL_DOCKER" \
-    AUXILIARY_EMBEDDING_MODEL="$USE_AUXILIARY_EMBEDDING_MODEL_DOCKER" \
-    SENTENCE_TRANSFORMERS_HOME="/app/backend/data/cache/embedding/models"
-
-ENV TIKTOKEN_ENCODING_NAME="cl100k_base" \
-    TIKTOKEN_CACHE_DIR="/app/backend/data/cache/tiktoken"
-
-ENV HF_HOME="/app/backend/data/cache/embedding/models"
-
-WORKDIR /app/backend
+# Create Choreo-compliant non-root user (UID must be 10000-20000)
+RUN groupadd --gid 10001 app 2>/dev/null || true && \
+    useradd --uid 10001 --gid 10001 --home /home/app --create-home app 2>/dev/null || true && \
+    mkdir -p /home/app/.cache/chroma && \
+    echo -n 00000000-0000-0000-0000-000000000000 > /home/app/.cache/chroma/telemetry_user_id && \
+    chown -R 10001:10001 /app /home/app
 
 ENV HOME=/home/app
 
-# Create non-root user with UID 10001 (Choreo-compliant)
-RUN addgroup --gid $GID app && \
-    adduser --uid $UID --gid $GID --home $HOME --disabled-password --no-create-home app
-
-RUN mkdir -p $HOME/.cache/chroma && \
-    echo -n 00000000-0000-0000-0000-000000000000 > $HOME/.cache/chroma/telemetry_user_id
-
-RUN chown -R $UID:$GID /app $HOME
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    git build-essential pandoc gcc netcat-openbsd curl jq \
-    libmariadb-dev \
-    python3-dev \
-    ffmpeg libsm6 libxext6 zstd \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
-
-ENV UV_LINK_MODE=copy
-
-# Install only minimal requirements (no torch/heavy ML deps) for Choreo's constrained build environment.
-# Torch and ML models are loaded at runtime from the mounted data volume.
-RUN set -e; \
-    pip3 install --no-cache-dir uv; \
-    uv pip install --system -r requirements-min.txt --no-cache-dir; \
-    mkdir -p /app/backend/data; chown -R $UID:$GID /app/backend/data/; \
-    rm -rf /var/lib/apt/lists/*;
-
-COPY --chown=$UID:$GID --from=build /app/build /app/build
-COPY --chown=$UID:$GID --from=build /app/CHANGELOG.md /app/CHANGELOG.md
-COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
-
-COPY --chown=$UID:$GID ./backend .
-
 EXPOSE 8080
-
-HEALTHCHECK CMD curl --silent --fail http://localhost:${PORT:-8080}/health | jq -ne 'input.status == true' || exit 1
 
 # Choreo-compliant: literal numeric UID required by CKV_CHOREO_1 (range 10000-20000)
 USER 10001
 
-ARG BUILD_HASH
-ENV WEBUI_BUILD_VERSION=${BUILD_HASH}
-ENV DOCKER=true
-
-CMD [ "bash", "start.sh"]
+CMD ["bash", "start.sh"]

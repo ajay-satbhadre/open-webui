@@ -26,6 +26,9 @@ ARG BUILD_HASH
 
 WORKDIR /app
 
+# Increase Node.js heap limit to prevent "JavaScript heap out of memory" during build
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
 RUN apk add --no-cache git
 
 COPY package.json package-lock.json ./

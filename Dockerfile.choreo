@@ -18,12 +18,15 @@ RUN groupadd --gid 10001 app 2>/dev/null || true && \
     useradd --uid 10001 --gid 10001 --home /home/app --create-home app 2>/dev/null || true && \
     mkdir -p /home/app/.cache/chroma && \
     echo -n 00000000-0000-0000-0000-000000000000 > /home/app/.cache/chroma/telemetry_user_id && \
+    mkdir -p /home/app/data && \
     chown -R 10001:10001 /app /home/app
 
 # open_webui is NOT pip-installed — it's source at /app/backend/open_webui/.
-# PYTHONPATH ensures Python finds it even if the working directory changes.
+# DATA_DIR is redirected to /home/app/data so UID 10001 can write to it even when
+# Choreo mounts a PVC at /app/backend/data (PVC mounts override build-time chown).
 WORKDIR /app/backend
 ENV HOME=/home/app \
+    DATA_DIR=/home/app/data \
     PYTHONPATH=/app/backend
 
 EXPOSE 8080

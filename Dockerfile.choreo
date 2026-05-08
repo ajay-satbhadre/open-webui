@@ -1,0 +1,136 @@
+# syntax=docker/dockerfile:1
+# Choreo-compatible Dockerfile for Open WebUI
+# Overrides UID/GID defaults to satisfy Choreo's requirement:
+# USER must be a numeric UID in the range 10000-20000.
+#
+# Usage in Choreo: set Dockerfile Path to /Dockerfile.choreo
+
+ARG USE_CUDA=false
+ARG USE_OLLAMA=false
+ARG USE_SLIM=true
+ARG USE_PERMISSION_HARDENING=false
+ARG USE_CUDA_VER=cu128
+ARG USE_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+ARG USE_RERANKING_MODEL=""
+ARG USE_AUXILIARY_EMBEDDING_MODEL=TaylorAI/bge-micro-v2
+ARG USE_TIKTOKEN_ENCODING_NAME="cl100k_base"
+ARG BUILD_HASH=dev-build
+
+# Choreo requires a numeric UID between 10000-20000
+ARG UID=10001
+ARG GID=10001
+
+######## WebUI frontend ########
+FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
+ARG BUILD_HASH
+
+WORKDIR /app
+
+RUN apk add --no-cache git
+
+COPY package.json package-lock.json ./
+RUN npm ci --force
+
+COPY . .
+ENV APP_BUILD_HASH=${BUILD_HASH}
+RUN npm run build
+
+######## WebUI backend ########
+FROM python:3.11.14-slim-bookworm AS base
+
+ARG USE_CUDA
+ARG USE_OLLAMA
+ARG USE_CUDA_VER
+ARG USE_SLIM
+ARG USE_PERMISSION_HARDENING
+ARG USE_EMBEDDING_MODEL
+ARG USE_RERANKING_MODEL
+ARG USE_AUXILIARY_EMBEDDING_MODEL
+ARG UID
+ARG GID
+
+ENV PYTHONUNBUFFERED=1
+
+ENV ENV=prod \
+    PORT=8080 \
+    USE_OLLAMA_DOCKER=${USE_OLLAMA} \
+    USE_CUDA_DOCKER=${USE_CUDA} \
+    USE_SLIM_DOCKER=${USE_SLIM} \
+    USE_CUDA_DOCKER_VER=${USE_CUDA_VER} \
+    USE_EMBEDDING_MODEL_DOCKER=${USE_EMBEDDING_MODEL} \
+    USE_RERANKING_MODEL_DOCKER=${USE_RERANKING_MODEL} \
+    USE_AUXILIARY_EMBEDDING_MODEL_DOCKER=${USE_AUXILIARY_EMBEDDING_MODEL}
+
+ENV OLLAMA_BASE_URL="/ollama" \
+    OPENAI_API_BASE_URL=""
+
+ENV OPENAI_API_KEY="" \
+    WEBUI_SECRET_KEY="" \
+    SCARF_NO_ANALYTICS=true \
+    DO_NOT_TRACK=true \
+    ANONYMIZED_TELEMETRY=false
+
+ENV WHISPER_MODEL="base" \
+    WHISPER_MODEL_DIR="/app/backend/data/cache/whisper/models"
+
+ENV RAG_EMBEDDING_MODEL="$USE_EMBEDDING_MODEL_DOCKER" \
+    RAG_RERANKING_MODEL="$USE_RERANKING_MODEL_DOCKER" \
+    AUXILIARY_EMBEDDING_MODEL="$USE_AUXILIARY_EMBEDDING_MODEL_DOCKER" \
+    SENTENCE_TRANSFORMERS_HOME="/app/backend/data/cache/embedding/models"
+
+ENV TIKTOKEN_ENCODING_NAME="cl100k_base" \
+    TIKTOKEN_CACHE_DIR="/app/backend/data/cache/tiktoken"
+
+ENV HF_HOME="/app/backend/data/cache/embedding/models"
+
+WORKDIR /app/backend
+
+ENV HOME=/home/app
+
+# Create non-root user with UID 10001 (Choreo-compliant)
+RUN addgroup --gid $GID app && \
+    adduser --uid $UID --gid $GID --home $HOME --disabled-password --no-create-home app
+
+RUN mkdir -p $HOME/.cache/chroma && \
+    echo -n 00000000-0000-0000-0000-000000000000 > $HOME/.cache/chroma/telemetry_user_id
+
+RUN chown -R $UID:$GID /app $HOME
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git build-essential pandoc gcc netcat-openbsd curl jq \
+    libmariadb-dev \
+    python3-dev \
+    ffmpeg libsm6 libxext6 zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
+
+ENV UV_LINK_MODE=copy
+
+# USE_SLIM=true skips downloading large ML models at build time (faster build, models download on first use)
+RUN set -e; \
+    pip3 install --no-cache-dir uv; \
+    pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir; \
+    uv pip install --system -r requirements.txt --no-cache-dir; \
+    mkdir -p /app/backend/data; chown -R $UID:$GID /app/backend/data/; \
+    rm -rf /var/lib/apt/lists/*;
+
+COPY --chown=$UID:$GID --from=build /app/build /app/build
+COPY --chown=$UID:$GID --from=build /app/CHANGELOG.md /app/CHANGELOG.md
+COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
+
+COPY --chown=$UID:$GID ./backend .
+
+EXPOSE 8080
+
+HEALTHCHECK CMD curl --silent --fail http://localhost:${PORT:-8080}/health | jq -ne 'input.status == true' || exit 1
+
+# Choreo-compliant: numeric UID 10001 in range 10000-20000
+USER $UID:$GID
+
+ARG BUILD_HASH
+ENV WEBUI_BUILD_VERSION=${BUILD_HASH}
+ENV DOCKER=true
+
+CMD [ "bash", "start.sh"]

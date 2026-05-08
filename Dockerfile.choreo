@@ -111,11 +111,11 @@ COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
 
 ENV UV_LINK_MODE=copy
 
-# USE_SLIM=true skips downloading large ML models at build time (faster build, models download on first use)
+# Install only minimal requirements (no torch/heavy ML deps) for Choreo's constrained build environment.
+# Torch and ML models are loaded at runtime from the mounted data volume.
 RUN set -e; \
     pip3 install --no-cache-dir uv; \
-    pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir; \
-    uv pip install --system -r requirements.txt --no-cache-dir; \
+    uv pip install --system -r requirements-min.txt --no-cache-dir; \
     mkdir -p /app/backend/data; chown -R $UID:$GID /app/backend/data/; \
     rm -rf /var/lib/apt/lists/*;
 

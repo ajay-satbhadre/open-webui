@@ -3,6 +3,30 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd "$SCRIPT_DIR" || exit
 
+# Debug: print environment and ensure DATA_DIR/PYTHONPATH defaults
+echo "[startup] SCRIPT_DIR=$SCRIPT_DIR"
+echo "[startup] Initial envs: DATA_DIR=${DATA_DIR:-}<unset> PYTHONPATH=${PYTHONPATH:-}<unset> HOME=${HOME:-}<unset> USER=${USER:-}<unset>"
+
+# Ensure DATA_DIR and PYTHONPATH have safe defaults for container runtimes
+export DATA_DIR=${DATA_DIR:-/home/app/data}
+export PYTHONPATH=${PYTHONPATH:-/app/backend}
+export HOME=${HOME:-/home/app}
+
+echo "[startup] Using DATA_DIR=$DATA_DIR PYTHONPATH=$PYTHONPATH HOME=$HOME"
+
+# Ensure data dir exists and is writable; report ownership
+mkdir -p "$DATA_DIR" || true
+ls -ld "$DATA_DIR" /home/app /app/backend || true
+echo "[startup] ownership and perms:"; ls -la "$DATA_DIR" | sed -n '1,20p' || true
+id || true
+
+# If running as root, try to fix ownership of DATA_DIR so the app UID can write to it
+if [ "$(id -u)" -eq 0 ]; then
+  echo "[startup] running as root, attempting chown $DATA_DIR -> 10001:10001"
+  chown -R 10001:10001 "$DATA_DIR" 2>/dev/null || echo "[startup] chown failed or not permitted"
+  ls -ld "$DATA_DIR" || true
+fi
+
 # Add conditional Playwright browser installation
 if [[ "${WEB_LOADER_ENGINE,,}" == "playwright" ]]; then
     if [[ -z "${PLAYWRIGHT_WS_URL}" ]]; then

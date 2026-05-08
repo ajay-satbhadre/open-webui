@@ -19,7 +19,11 @@ RUN groupadd --gid 10001 app 2>/dev/null || true && \
     mkdir -p /home/app/.cache/chroma && \
     echo -n 00000000-0000-0000-0000-000000000000 > /home/app/.cache/chroma/telemetry_user_id && \
     mkdir -p /home/app/data && \
-    chown -R 10001:10001 /app /home/app
+    chown -R 10001:10001 /app /home.app
+
+# Copy our patched start script so runtime picks up DATA_DIR defaults and debug logs
+COPY backend/start.sh /app/backend/start.sh
+RUN chown 10001:10001 /app/backend/start.sh && chmod 0755 /app/backend/start.sh
 
 # open_webui is NOT pip-installed — it's source at /app/backend/open_webui/.
 # DATA_DIR is redirected to /home/app/data so UID 10001 can write to it even when

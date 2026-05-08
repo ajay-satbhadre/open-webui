@@ -7,9 +7,10 @@ FROM ghcr.io/open-webui/open-webui:main
 
 USER root
 
-# Upgrade OS packages to patch Trivy-flagged CVEs (openssl, linux-libc-dev, etc.)
+# Upgrade only the CVE-affected packages (targeted, avoids breaking Python .so extensions)
+# CVE-2026-31789: openssl, libssl3, libssl-dev  |  CVE-2026-23112: linux-libc-dev
 RUN apt-get update && \
-    apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --only-upgrade openssl libssl3 libssl-dev linux-libc-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Create Choreo-compliant non-root user (UID must be 10000-20000)
@@ -19,7 +20,11 @@ RUN groupadd --gid 10001 app 2>/dev/null || true && \
     echo -n 00000000-0000-0000-0000-000000000000 > /home/app/.cache/chroma/telemetry_user_id && \
     chown -R 10001:10001 /app /home/app
 
-ENV HOME=/home/app
+# open_webui is NOT pip-installed — it's source at /app/backend/open_webui/.
+# PYTHONPATH ensures Python finds it even if the working directory changes.
+WORKDIR /app/backend
+ENV HOME=/home/app \
+    PYTHONPATH=/app/backend
 
 EXPOSE 8080
 

@@ -9,7 +9,7 @@ USER root
 
 # Create Choreo-compliant non-root user (UID must be 10000-20000)
 RUN groupadd --gid 10001 openwebui 2>/dev/null || true && \
-    useradd --uid 10001 --gid 10001 --home /home/openwebui --create-home openwebui 2>/dev/null || true && \
+    useradd --uid 10001 --gid 10001 --home /home/openwebui --create-home openwebui 2>/dev/null || true
     # mkdir -p /home/openwebui/data && chown -R 10001:10001 /openwebui /home/openwebui
 
 # Copy our patched start script so runtime picks up DATA_DIR defaults and debug logs

@@ -27,6 +27,9 @@ else
     ARGS=(--workers "$UVICORN_WORKERS")
 fi
 
+PORT="${PORT:-8080}"
+HOST="${HOST:-0.0.0.0}"
+
 # Run uvicorn
 WEBUI_SECRET_KEY="$WEBUI_SECRET_KEY" exec "$PYTHON_CMD" -m uvicorn open_webui.main:app \
     --host "$HOST" \

@@ -12,9 +12,11 @@ RUN groupadd --gid 10001 openwebui 2>/dev/null || true && \
     useradd --uid 10001 --gid 10001 --home /home/openwebui --create-home openwebui 2>/dev/null || true
     # mkdir -p /home/openwebui/data && chown -R 10001:10001 /openwebui /home/openwebui
 
+RUN apt-get update && apt-get install -y dos2unix && rm -rf /var/lib/apt/lists/*
+
 # Copy our patched start script so runtime picks up DATA_DIR defaults and debug logs
-COPY start.sh /opt/start.sh
-RUN chown 10001:10001 /opt/start.sh && chmod 0755 /opt/start.sh
+COPY start.sh /home/openwebui/start.sh
+RUN chown 10001:10001 /home/openwebui/start.sh && chmod 0755 /home/openwebui/start.sh
 
 # open_webui is NOT pip-installed — it's source at /openwebui/backend/open_webui/.
 # DATA_DIR is redirected to /home/openwebui/data so UID 10001 can write to it even when
@@ -22,11 +24,11 @@ RUN chown 10001:10001 /opt/start.sh && chmod 0755 /opt/start.sh
 WORKDIR /home/openwebui
 
 ENV HOME=/home/openwebui
-ENV DATA_DIR=/openwebui 
+ENV DATA_DIR=/home/openwebui/data
 
 EXPOSE 8080
 
 # Choreo-compliant: literal numeric UID required by CKV_CHOREO_1 (range 10000-20000)
 USER 10001
 
-CMD ["bash", "/opt/start.sh"]
+CMD ["bash", "/home/openwebui/start.sh"]
